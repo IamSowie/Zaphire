@@ -94,7 +94,8 @@ jobs:
           V=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
           ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
           if [ ! -f "$ISCC" ]; then choco install innosetup -y --no-progress; fi
-          "$ISCC" "/DAppVersion=$V" packaging/windows/zaphire.iss
+          # Git Bash would rewrite "/DAppVersion=…" into a Windows path.
+          MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL="*" "$ISCC" "/DAppVersion=$V" packaging/windows/zaphire.iss
           (cd dist && 7z a -tzip "Zaphire-$V-windows-x64-portable.zip" zaphire-windows >/dev/null)
       - uses: actions/upload-artifact@v4
         with:
