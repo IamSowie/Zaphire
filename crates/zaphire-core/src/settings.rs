@@ -13,27 +13,94 @@ pub enum TabLayout {
     Horizontal,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemeMode {
+    #[default]
+    Dark,
+    Light,
+    /// Follow the operating system.
+    System,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Background {
+    /// Soft accent-tinted gradient.
+    #[default]
+    Gradient,
+    /// One flat colour.
+    Solid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Density {
+    Compact,
+    #[default]
+    Comfortable,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Theme {
+    pub mode: ThemeMode,
+    pub background: Background,
+    /// Custom base colour (`#rrggbb`) for the browser frame; `None` uses the
+    /// theme's default.
+    pub background_color: Option<String>,
     /// Accent colour as `#rrggbb`.
     pub accent: String,
     /// 0.0 (opaque) – 1.0 (very see-through) for the glass panels.
     pub glass: f32,
     /// Corner radius of panels in px.
     pub radius: u8,
+    /// Interface scale, 0.85 – 1.25.
+    pub scale: f32,
+    pub density: Density,
     pub reduce_motion: bool,
 }
 
 impl Default for Theme {
     fn default() -> Self {
         Self {
+            mode: ThemeMode::Dark,
+            background: Background::Gradient,
+            background_color: None,
             accent: "#3b82f6".into(),
             glass: 0.55,
             radius: 12,
+            scale: 1.0,
+            density: Density::Comfortable,
             reduce_motion: false,
         }
     }
+}
+
+impl Theme {
+    /// Opaque ARGB colour painted behind web views and between split panes,
+    /// so the window frame matches the UI. `system_dark` resolves
+    /// [`ThemeMode::System`].
+    pub fn frame_color(&self, system_dark: bool) -> u32 {
+        if let Some(c) = self.background_color.as_deref().and_then(parse_hex) {
+            return c;
+        }
+        let dark = match self.mode {
+            ThemeMode::Dark => true,
+            ThemeMode::Light => false,
+            ThemeMode::System => system_dark,
+        };
+        if dark { 0xff0b1020 } else { 0xffeef1f7 }
+    }
+}
+
+/// `#rrggbb` → opaque ARGB.
+pub fn parse_hex(s: &str) -> Option<u32> {
+    let h = s.strip_prefix('#')?;
+    if h.len() != 6 {
+        return None;
+    }
+    u32::from_str_radix(h, 16).ok().map(|rgb| 0xff00_0000 | rgb)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -48,6 +115,12 @@ pub struct Settings {
     /// Width of the vertical sidebar in px.
     pub sidebar_width: u32,
     pub theme: Theme,
+    /// Reopen the previous session's tabs on start (they load on demand).
+    pub restore_session: bool,
+    /// Show the bookmarks list in the sidebar.
+    pub show_bookmarks: bool,
+    /// Show extension buttons in the toolbar.
+    pub show_extensions: bool,
 }
 
 impl Default for Settings {
@@ -60,6 +133,9 @@ impl Default for Settings {
             homepage: "zaphire://app/newtab".into(),
             sidebar_width: 280,
             theme: Theme::default(),
+            restore_session: true,
+            show_bookmarks: true,
+            show_extensions: true,
         }
     }
 }
@@ -116,9 +192,11 @@ mod tests {
         let path = dir.join("settings.toml");
         assert_eq!(Settings::load(&path).unwrap(), Settings::default());
 
-        let mut s = Settings::default();
-        s.tab_layout = TabLayout::Horizontal;
-        s.profile = Profile::Game;
+        let s = Settings {
+            tab_layout: TabLayout::Horizontal,
+            profile: Profile::Game,
+            ..Settings::default()
+        };
         s.save(&path).unwrap();
         assert_eq!(Settings::load(&path).unwrap(), s);
 
@@ -128,5 +206,28 @@ mod tests {
         assert!(!s.adblock);
         assert_eq!(s.tab_layout, TabLayout::Vertical);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn theme_frame_colour() {
+        let mut t = Theme::default();
+        assert_eq!(t.frame_color(false), 0xff0b1020);
+        t.mode = ThemeMode::Light;
+        assert_eq!(t.frame_color(true), 0xffeef1f7);
+        t.mode = ThemeMode::System;
+        assert_eq!(t.frame_color(true), 0xff0b1020);
+        t.background_color = Some("#123456".into());
+        assert_eq!(t.frame_color(true), 0xff123456);
+        t.background_color = Some("nope".into());
+        assert_eq!(t.frame_color(false), 0xffeef1f7);
+    }
+
+    #[test]
+    fn old_theme_tables_still_load() {
+        let s: Settings = toml::from_str("[theme]\naccent = \"#ff0000\"\n").unwrap();
+        assert_eq!(s.theme.accent, "#ff0000");
+        assert_eq!(s.theme.mode, ThemeMode::Dark);
+        assert_eq!(s.theme.background, Background::Gradient);
+        assert!(s.restore_session);
     }
 }

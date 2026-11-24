@@ -5,23 +5,51 @@
 :root {
   --z-accent: #3b82f6;
   --z-accent-soft: color-mix(in oklab, var(--z-accent) 22%, transparent);
-  --z-bg: #0b1020;
-  --z-bg-2: #0f1730;
   --z-glass: 0.55;
-  --z-panel: rgb(255 255 255 / calc(0.04 + (1 - var(--z-glass)) * 0.06));
-  --z-panel-hover: rgb(255 255 255 / 0.08);
-  --z-panel-active: rgb(255 255 255 / 0.12);
-  --z-line: rgb(255 255 255 / 0.09);
-  --z-text: #e6ebf5;
-  --z-text-dim: #93a0b8;
-  --z-text-faint: #5d6a83;
-  --z-danger: #f87171;
-  --z-success: #4ade80;
-  --z-warning: #fbbf24;
   --z-radius: 12px;
   --z-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --z-ease-exit: cubic-bezier(0.4, 0, 0.6, 1);
+
+  /* Dark theme (default). `--z-ink` is the colour overlays are made of:
+     white on dark, slate on light, so panels work on any background. */
+  --z-bg: #0b1020;
+  --z-ink: 255 255 255;
+  --z-text: #e6ebf5;
+  --z-text-dim: #93a0b8;
+  --z-text-faint: #5d6a83;
+  --z-menu: color-mix(in oklab, var(--z-bg) 88%, white 6%);
+  --z-danger: #f87171;
+  --z-success: #4ade80;
+  --z-warning: #fbbf24;
+  --z-shadow: rgb(0 0 0 / 0.25);
   color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --z-bg: #eef1f7;
+  --z-ink: 15 23 42;
+  --z-text: #0f172a;
+  --z-text-dim: #475569;
+  --z-text-faint: #94a3b8;
+  --z-menu: #ffffff;
+  --z-danger: #dc2626;
+  --z-success: #16a34a;
+  --z-warning: #b45309;
+  --z-shadow: rgb(15 23 42 / 0.12);
+  color-scheme: light;
+}
+
+:root {
+  --z-bg-2: color-mix(in oklab, var(--z-bg) 82%, var(--z-accent) 8%);
+  --z-panel: rgb(var(--z-ink) / calc(0.04 + (1 - var(--z-glass)) * 0.06));
+  --z-panel-hover: rgb(var(--z-ink) / 0.08);
+  --z-panel-active: rgb(var(--z-ink) / 0.12);
+  --z-line: rgb(var(--z-ink) / 0.1);
+}
+
+/* Compact density tightens the shell a little. */
+:root[data-density="compact"] {
+  --z-radius: 8px;
 }
 
 @theme inline {
@@ -35,6 +63,7 @@
   --color-dim: var(--z-text-dim);
   --color-faint: var(--z-text-faint);
   --color-danger: var(--z-danger);
+  --color-menu: var(--z-menu);
   --color-success: var(--z-success);
   --color-warning: var(--z-warning);
   --radius-z: var(--z-radius);
@@ -57,19 +86,23 @@ body {
   overflow: hidden;
 }
 
-/* The shell backdrop: a still sapphire glow, no animation (always on screen). */
+/* The shell backdrop: a still accent glow, no animation (always on screen).
+   `data-bg="solid"` turns it into one flat colour. */
 .z-backdrop {
   background:
     radial-gradient(120% 70% at 0% 0%, color-mix(in oklab, var(--z-accent) 26%, transparent), transparent 60%),
-    radial-gradient(90% 60% at 100% 100%, rgb(99 102 241 / 0.16), transparent 60%),
+    radial-gradient(90% 60% at 100% 100%, color-mix(in oklab, var(--z-accent) 12%, transparent), transparent 60%),
     linear-gradient(180deg, var(--z-bg-2), var(--z-bg));
+}
+:root[data-bg="solid"] .z-backdrop {
+  background: var(--z-bg);
 }
 
 .z-glass {
   background: var(--z-panel);
   border: 1px solid var(--z-line);
   backdrop-filter: blur(18px) saturate(140%);
-  box-shadow: 0 8px 30px rgb(0 0 0 / 0.25), inset 0 1px 0 rgb(255 255 255 / 0.05);
+  box-shadow: 0 8px 30px var(--z-shadow), inset 0 1px 0 rgb(var(--z-ink) / 0.05);
 }
 
 .drag {
@@ -98,7 +131,7 @@ body {
   height: 6px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgb(255 255 255 / 0.12);
+  background: rgb(var(--z-ink) / 0.15);
   border-radius: 99px;
 }
 

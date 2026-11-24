@@ -6,7 +6,7 @@
 //!   the UI frame.
 
 use serde::{Deserialize, Serialize};
-use zaphire_core::{Session, Settings, TabId, WorkspaceId};
+use zaphire_core::{Bookmark, ExtensionInfo, Session, Settings, TabId, WorkspaceId};
 use zaphire_perf::Profile;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -71,6 +71,26 @@ pub enum Command {
     DevTools,
     /// Restart the browser to apply startup switches.
     Restart,
+    /// Bookmark the active tab, or remove it if already bookmarked.
+    ToggleBookmark,
+    RemoveBookmark {
+        url: String,
+    },
+    DeleteHistory {
+        url: String,
+    },
+    ClearHistory,
+    /// Show an extension's popup anchored at a point of the UI view (CSS px,
+    /// already multiplied by the UI zoom).
+    ExtensionPopup {
+        id: String,
+        x: i32,
+        y: i32,
+    },
+    /// The OS colour scheme changed (for the `system` theme).
+    SystemDark {
+        dark: bool,
+    },
     // Window controls for the frameless title bar.
     Minimize,
     ToggleMaximize,
@@ -91,6 +111,10 @@ pub enum Event<'a> {
         /// The running profile differs from the saved one.
         restart_needed: bool,
         platform: &'static str,
+        bookmarks: &'a [Bookmark],
+        extensions: &'a [ExtensionInfo],
+        /// The active tab's URL is bookmarked.
+        bookmarked: bool,
     },
 }
 
@@ -156,6 +180,9 @@ mod tests {
             blocked: 7,
             restart_needed: false,
             platform: "linux",
+            bookmarks: &[],
+            extensions: &[],
+            bookmarked: false,
         }
         .to_js();
         assert!(js.starts_with("window.__zaphire&&window.__zaphire.receive({\"type\":\"state\""));

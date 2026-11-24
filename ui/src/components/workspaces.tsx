@@ -52,7 +52,7 @@ export function Workspaces({ session, className, popupSide = "top" }: { session:
           <Plus size={14} />
         </button>
         {adding && (
-          <div className={cn("z-glass absolute z-50 flex gap-1 rounded-[var(--z-radius)] bg-[#141c33]/95 p-1", popupSide === "top" ? "bottom-10 left-0" : "top-0 right-10")}>
+          <div className={cn("z-glass absolute z-50 flex gap-1 rounded-[var(--z-radius)] bg-menu p-1", popupSide === "top" ? "bottom-10 left-0" : "top-0 right-10")}>
             {PRESETS.map((p) => (
               <button
                 key={p.name}

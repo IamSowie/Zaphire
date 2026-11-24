@@ -62,8 +62,23 @@ Por eso `chrome://extensions` y la Web Store se abren en una **ventana
 estilo Chrome** aparte (`open_chrome_window`). Lo instalado ahí funciona en
 todas las pestañas porque el perfil es el mismo.
 
-Pendiente: mostrar los botones de las extensiones en la propia barra de
-Zaphire (abrir `chrome-extension://<id>/<popup>` en una vista flotante).
+**Botones en la barra de Zaphire.** El runtime de Chrome no ofrece una API
+para listar extensiones, así que Zaphire lee `extensions.settings` del
+`Preferences` del perfil, abre el `manifest.json` de cada una y saca nombre,
+icono y `action.default_popup` (`zaphire-core::extensions`). Chromium escribe
+ese archivo con retraso, por eso la lista se vuelve a leer cada 20 s y al
+cerrar la ventana de extensiones.
+
+Al pulsar un botón, el popup (`chrome-extension://<id>/<popup>`) se abre en
+una BrowserView Alloy **flotante** (`Window::add_overlay_view`) que se ajusta a
+su contenido (`set_auto_resize_enabled` + `on_auto_resize`). Comprobado con una
+extensión de prueba: el popup carga y `chrome.storage` funciona. Se cierra al
+volver el foco a la página o a la interfaz.
+
+Limitación: las APIs que dependen de las pestañas de Chrome
+(`chrome.tabs.query` para la pestaña actual, `activeTab`) no ven las pestañas
+Alloy de Zaphire, así que las extensiones que actúan sobre «la pestaña actual»
+desde su popup pueden no funcionar del todo.
 
 ### Perfiles de rendimiento
 
@@ -74,6 +89,44 @@ Zaphire (abrir `chrome-extension://<id>/<popup>` en una vista flotante).
 2. **Política en vivo**, que se aplica al instante: suspensión, congelar y
    silenciar las pestañas de fondo, y prioridad del proceso.
 
+## Personalización
+
+El tema vive en `Settings.theme` (`zaphire-core::settings`):
+
+- `mode`: oscuro, claro o sistema.
+- `background`: degradado o plano.
+- `background_color`: color base propio.
+- `accent`, `glass`, `radius`.
+- `scale`: zoom de la interfaz.
+- `density` y `reduce_motion`.
+
+La interfaz lo aplica con atributos en `<html>` (`data-theme`, `data-bg`,
+`data-density`) y variables CSS (`ui/src/index.css`). Todos los colores salen
+de tokens: `--z-ink` es el color de las superposiciones (blanco en oscuro,
+pizarra en claro), así los paneles funcionan sobre cualquier fondo. El núcleo
+pinta la ventana y el hueco de la vista dividida con
+`Theme::frame_color()`, para que no aparezca una franja oscura en el tema
+claro. Con «sistema», la interfaz avisa al núcleo cuando el sistema cambia
+entre claro y oscuro.
+
+## Historial, marcadores y sesión
+
+`zaphire-core::library` guarda `history.json` (máximo 5000 visitas, las
+recargas se funden con la visita anterior), `bookmarks.json` y
+`session.json` en la carpeta de configuración. Se escriben cada 20 s si hubo
+cambios y al cerrar. La sesión restaurada marca todas las pestañas como
+suspendidas: solo cargan las que se ven.
+
+## Instaladores
+
+| Sistema | Formato | Cómo |
+| --- | --- | --- |
+| Linux | AppImage + tar.gz | `scripts/appimage.sh` (appimagetool, sin FUSE) |
+| Windows | Instalador `.exe` (Inno Setup, por usuario) + zip | `packaging/windows/zaphire.iss` en la CI |
+
+Una etiqueta `v*` lanza el trabajo `release` de la CI, que publica todo en
+GitHub Releases.
+
 ## Consumo medido (Linux, Xvfb, compilación debug, GPU por software)
 
 Interfaz más 4 pestañas (una página local, nueva pestaña, ajustes y
@@ -83,11 +136,10 @@ menos. Falta medir una compilación release en hardware real.
 
 ## Hoja de ruta
 
-1. Botones de extensiones en la barra de Zaphire.
-2. Historial, marcadores, descargas y restaurar la sesión al reabrir.
-3. Paleta de comandos (Ctrl+K) con `@kobra/command-menu` o
+1. Descargas con panel propio; carpetas de marcadores e importar desde Chrome/Firefox.
+2. Paleta de comandos (Ctrl+K) con `@kobra/command-menu` o
    `spotlight-search` de EasyUI.
-4. Descargar EasyList y EasyPrivacy desde Ajustes y actualizarlas solas.
-5. Mica/acrílico real en Windows 11 (DWM) para el cristal.
-6. Superposición de rendimiento (FPS/RAM) en Modo Juego.
-7. Instaladores (MSI y AppImage) y actualizaciones automáticas.
+3. Descargar EasyList y EasyPrivacy desde Ajustes y actualizarlas solas.
+4. Mica/acrílico real en Windows 11 (DWM) para el cristal.
+5. Superposición de rendimiento (FPS/RAM) en Modo Juego.
+6. Actualizaciones automáticas.

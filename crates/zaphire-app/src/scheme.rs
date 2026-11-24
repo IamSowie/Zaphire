@@ -77,6 +77,39 @@ fn serve_file(path: &str) -> Option<ResourceHandler> {
     }
 }
 
+/// Value of `key` in the URL's query string (percent-decoded, `+` = space).
+fn query_param(url: &str, key: &str) -> Option<String> {
+    let query = url.split_once('?')?.1.split('#').next()?;
+    query.split('&').find_map(|pair| {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        (k == key).then(|| percent_decode(v))
+    })
+}
+
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => out.push(b' '),
+            b'%' if i + 2 < bytes.len() => match std::str::from_utf8(&bytes[i + 1..i + 3])
+                .ok()
+                .and_then(|h| u8::from_str_radix(h, 16).ok())
+            {
+                Some(b) => {
+                    out.push(b);
+                    i += 2;
+                }
+                None => out.push(b'%'),
+            },
+            b => out.push(b),
+        }
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 fn post_body(request: &mut Request) -> Vec<u8> {
     let mut out = vec![];
     let Some(data) = request.post_data() else {
@@ -135,6 +168,23 @@ wrap_scheme_handler_factory! {
                 let json = shell::LAST_STATE.lock().map(|s| s.clone()).unwrap_or_default();
                 return respond(200, "application/json", json.into_bytes());
             }
+            if path == "/api/history" {
+                let q = query_param(&url, "q").unwrap_or_default();
+                let visits = app::global().library.lock().map(|l| l.search(&q, 300)).unwrap_or_default();
+                return respond(200, "application/json", serde_json::to_vec(&visits).unwrap_or_default());
+            }
+            if path == "/api/ext-icon" {
+                let id = query_param(&url, "id").unwrap_or_default();
+                let icon = app::global()
+                    .extensions
+                    .lock()
+                    .ok()
+                    .and_then(|l| l.iter().find(|e| e.id == id).and_then(|e| e.icon_path.clone()));
+                return match icon.and_then(|p| std::fs::read(&p).ok().map(|b| (p, b))) {
+                    Some((p, bytes)) => respond(200, mime_for(&p.to_string_lossy()), bytes),
+                    None => respond(404, "text/plain", b"no icon".to_vec()),
+                };
+            }
             let is_post = CefString::from(&request.method()).to_string() == "POST";
             if !(is_post && path == "/api") {
                 log::warn!("rejected api call from {url}");
@@ -149,5 +199,21 @@ wrap_scheme_handler_factory! {
                 Err(e) => respond(400, "application/json", serde_json::json!({ "error": e.to_string() }).to_string().into_bytes()),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn query_params() {
+        let u = "zaphire://app/api/history?q=hola+mundo%21&x=%zz&id=abc";
+        assert_eq!(query_param(u, "q").as_deref(), Some("hola mundo!"));
+        assert_eq!(query_param(u, "x").as_deref(), Some("%zz"));
+        assert_eq!(query_param(u, "id").as_deref(), Some("abc"));
+        assert_eq!(query_param(u, "nope"), None);
+        assert_eq!(percent_decode("%C3%B1"), "ñ");
+        assert_eq!(percent_decode("50%"), "50%");
     }
 }

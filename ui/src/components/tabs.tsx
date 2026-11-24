@@ -37,7 +37,7 @@ function TabMenu({ menu, session, onClose, row }: { menu: Menu; session: Session
           : { left: Math.min(menu.x, window.innerWidth - 200), top: Math.min(menu.y, window.innerHeight - 170) }
       }
       className={cn(
-        "z-glass fixed z-50 rounded-[var(--z-radius)] bg-[#141c33]/95 p-1 text-[13px]",
+        "z-glass fixed z-50 rounded-[var(--z-radius)] bg-menu p-1 text-[13px]",
         row ? "flex h-9 items-center gap-0.5 whitespace-nowrap" : "w-48",
       )}
       onPointerDown={(e) => e.stopPropagation()}

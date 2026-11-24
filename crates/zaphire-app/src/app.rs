@@ -2,10 +2,11 @@
 
 use crate::{scheme, shell};
 use cef::*;
-use std::sync::OnceLock;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicI32};
+use std::sync::{Mutex, OnceLock};
 use zaphire_adblock::Blocker;
-use zaphire_core::Settings;
+use zaphire_core::{ExtensionInfo, Library, Settings};
 
 /// State shared with CEF's IO thread (network requests, scheme handler).
 pub struct Global {
@@ -13,6 +14,13 @@ pub struct Global {
     pub adblock_on: AtomicBool,
     /// Browser id of the UI view; only it may call `zaphire://app/api`.
     pub ui_browser_id: AtomicI32,
+    /// History and bookmarks. Written on the UI thread, searched from the IO
+    /// thread by the history page.
+    pub library: Mutex<Library>,
+    /// Installed extensions; icons are served from their folders.
+    pub extensions: Mutex<Vec<ExtensionInfo>>,
+    /// Chromium profile folder (`<config>/profile/Default`).
+    pub profile_dir: PathBuf,
 }
 
 pub static GLOBAL: OnceLock<Global> = OnceLock::new();
@@ -104,6 +112,9 @@ wrap_browser_process_handler! {
                 blocker: Blocker::load(&Settings::config_dir().join("filters")),
                 adblock_on: AtomicBool::new(settings.adblock),
                 ui_browser_id: AtomicI32::new(-1),
+                library: Mutex::new(Library::load(&Settings::config_dir())),
+                extensions: Mutex::new(Vec::new()),
+                profile_dir: Settings::config_dir().join("profile").join("Default"),
             });
             let mut factory = scheme::ZaphireSchemeFactory::new();
             register_scheme_handler_factory(Some(&"zaphire".into()), Some(&"app".into()), Some(&mut factory));

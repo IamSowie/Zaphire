@@ -26,7 +26,20 @@ export function createMock(emit: (e: Event) => void) {
     search_engine: "https://duckduckgo.com/?q={}",
     homepage: "zaphire://app/newtab",
     sidebar_width: 280,
-    theme: { accent: "#3b82f6", glass: 0.55, radius: 12, reduce_motion: false },
+    theme: {
+      mode: "dark",
+      background: "gradient",
+      background_color: null,
+      accent: "#3b82f6",
+      glass: 0.55,
+      radius: 12,
+      scale: 1,
+      density: "comfortable",
+      reduce_motion: false,
+    },
+    restore_session: true,
+    show_bookmarks: true,
+    show_extensions: true,
   };
   const s: State = {
     session: {
@@ -47,7 +60,24 @@ export function createMock(emit: (e: Event) => void) {
     blocked: 1284,
     restartNeeded: false,
     platform: "linux",
+    bookmarks: [
+      { url: "https://github.com/", title: "GitHub", added: 0 },
+      { url: "https://doc.rust-lang.org/book/", title: "The Rust Book", added: 0 },
+      { url: "https://www.youtube.com/", title: "YouTube", added: 0 },
+    ],
+    extensions: [
+      { id: "cjpalhdlnbpafiamejdnhcphjbkeiagm", name: "uBlock Origin", popup: "popup.html", hasIcon: false },
+      { id: "nngceckbapebfimnlniiiahkandclblb", name: "Bitwarden", popup: "popup/index.html", hasIcon: false },
+      { id: "eimadpbcbfnmbkopoojfekhnkhdbieeh", name: "Dark Reader", popup: "ui/popup/index.html", hasIcon: false },
+    ],
+    bookmarked: false,
   };
+  const history: { url: string; title: string; time: number }[] = [
+    { url: "https://www.rust-lang.org/", title: "Rust Programming Language", time: Date.now() / 1000 - 60 },
+    { url: "https://github.com/", title: "GitHub", time: Date.now() / 1000 - 3600 },
+    { url: "https://news.ycombinator.com/", title: "Hacker News", time: Date.now() / 1000 - 90000 },
+  ];
+  (globalThis as { __zaphireMockHistory?: typeof history }).__zaphireMockHistory = history;
   const ws = () => s.session.workspaces.find((w) => w.id === s.session.current)!;
   const push = () => emit({ type: "state", ...structuredClone(s) });
 
@@ -96,6 +126,17 @@ export function createMock(emit: (e: Event) => void) {
         s.session.current = id;
         break;
       }
+      case "toggleBookmark": {
+        const t = w.active ? s.session.tabs[w.active] : null;
+        if (!t) break;
+        const i = s.bookmarks.findIndex((b) => b.url === t.url);
+        if (i >= 0) s.bookmarks.splice(i, 1);
+        else s.bookmarks.push({ url: t.url, title: t.title, added: 0 });
+        break;
+      }
+      case "removeBookmark":
+        s.bookmarks = s.bookmarks.filter((b) => b.url !== cmd.url);
+        break;
       case "updateSettings":
         s.settings = cmd.settings;
         break;
@@ -106,6 +147,8 @@ export function createMock(emit: (e: Event) => void) {
       default:
         break;
     }
+    const active = ws().active;
+    s.bookmarked = active != null && s.bookmarks.some((b) => b.url === s.session.tabs[active]?.url);
     setTimeout(push, 0);
   };
 }

@@ -32,6 +32,20 @@ wrap_client! {
         fn keyboard_handler(&self) -> Option<KeyboardHandler> {
             Some(Shortcuts::new())
         }
+        fn focus_handler(&self) -> Option<FocusHandler> {
+            Some(ClosePopupOnFocus::new())
+        }
+    }
+}
+
+// Focus moving to the page or the UI closes an open extension popup.
+wrap_focus_handler! {
+    struct ClosePopupOnFocus;
+
+    impl FocusHandler {
+        fn on_got_focus(&self, _browser: Option<&mut Browser>) {
+            shell::close_popup();
+        }
     }
 }
 
@@ -222,6 +236,8 @@ wrap_keyboard_handler! {
                 (true, true, 0x09) => shell::Shortcut::PrevTab,       // Ctrl+Shift+Tab
                 (true, true, 0x47) => shell::Shortcut::ToggleGame,    // Ctrl+Shift+G
                 (true, true, 0x53) => shell::Shortcut::ToggleSplit,   // Ctrl+Shift+S
+                (true, false, 0x44) => shell::Shortcut::Bookmark,     // Ctrl+D
+                (true, false, 0x48) => shell::Shortcut::History,      // Ctrl+H
                 (false, false, 0x7B) => shell::Shortcut::DevTools,    // F12
                 _ => return 0,
             };
@@ -248,6 +264,9 @@ wrap_client! {
         }
         fn request_handler(&self) -> Option<RequestHandler> {
             Some(UiRequest::new())
+        }
+        fn focus_handler(&self) -> Option<FocusHandler> {
+            Some(ClosePopupOnFocus::new())
         }
     }
 }
@@ -326,6 +345,85 @@ wrap_drag_handler! {
             regions: Option<&[DraggableRegion]>,
         ) {
             shell::set_drag_regions(regions.map(|r| r.to_vec()).unwrap_or_default());
+        }
+    }
+}
+
+// ─────────────────────────── extension popup ───────────────────────────
+
+wrap_client! {
+    pub struct PopupClient;
+
+    impl Client {
+        fn display_handler(&self) -> Option<DisplayHandler> {
+            Some(PopupDisplay::new())
+        }
+        fn life_span_handler(&self) -> Option<LifeSpanHandler> {
+            Some(PopupLifeSpan::new())
+        }
+        fn keyboard_handler(&self) -> Option<KeyboardHandler> {
+            Some(Shortcuts::new())
+        }
+    }
+}
+
+wrap_display_handler! {
+    struct PopupDisplay;
+
+    impl DisplayHandler {
+        fn on_auto_resize(&self, _browser: Option<&mut Browser>, new_size: Option<&Size>) -> i32 {
+            if let Some(size) = new_size {
+                shell::resize_popup(size.clone());
+            }
+            1
+        }
+    }
+}
+
+wrap_life_span_handler! {
+    struct PopupLifeSpan;
+
+    impl LifeSpanHandler {
+        #[allow(clippy::too_many_arguments)]
+        fn on_before_popup(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _popup_id: i32,
+            target_url: Option<&CefString>,
+            _target_frame_name: Option<&CefString>,
+            _target_disposition: WindowOpenDisposition,
+            _user_gesture: i32,
+            _popup_features: Option<&PopupFeatures>,
+            _window_info: Option<&mut WindowInfo>,
+            _client: Option<&mut Option<Client>>,
+            _settings: Option<&mut BrowserSettings>,
+            _extra_info: Option<&mut Option<DictionaryValue>>,
+            _no_javascript_access: Option<&mut i32>,
+        ) -> i32 {
+            // Links opened from a popup (settings, dashboards) become tabs.
+            let url = s(target_url);
+            crate::tasks::on_ui(0, move || {
+                shell::close_popup();
+                shell::open_tab(&url, true);
+            });
+            1
+        }
+
+        fn on_after_created(&self, browser: Option<&mut Browser>) {
+            shell::browser_created();
+            // Size the popup to its page, like Chrome does.
+            if let Some(host) = browser.and_then(|b| b.host()) {
+                host.set_auto_resize_enabled(
+                    1,
+                    Some(&Size { width: 120, height: 60 }),
+                    Some(&Size { width: 800, height: 600 }),
+                );
+            }
+        }
+
+        fn on_before_close(&self, _browser: Option<&mut Browser>) {
+            shell::browser_closed();
         }
     }
 }

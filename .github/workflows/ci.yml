@@ -3,7 +3,11 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -76,8 +80,46 @@ jobs:
       - name: Package
         shell: bash
         run: scripts/package.sh release
+      - name: AppImage + portable tarball
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          scripts/appimage.sh
+          V=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          tar -C dist -czf "dist/Zaphire-$V-linux-x86_64-portable.tar.gz" zaphire-linux
+      - name: Installer + portable zip
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          V=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
+          if [ ! -f "$ISCC" ]; then choco install innosetup -y --no-progress; fi
+          "$ISCC" "/DAppVersion=$V" packaging/windows/zaphire.iss
+          (cd dist && 7z a -tzip "Zaphire-$V-windows-x64-portable.zip" zaphire-windows >/dev/null)
       - uses: actions/upload-artifact@v4
         with:
           name: zaphire-${{ runner.os }}
-          path: dist/
+          path: |
+            dist/*.AppImage
+            dist/*.tar.gz
+            dist/*-setup.exe
+            dist/*.zip
+          if-no-files-found: error
           retention-days: 14
+
+  release:
+    name: GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [ui, core, app]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          generate_release_notes: true

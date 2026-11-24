@@ -35,11 +35,40 @@ export interface Session {
   current: WorkspaceId;
 }
 
+export type ThemeMode = "dark" | "light" | "system";
+export type BackgroundStyle = "gradient" | "solid";
+export type Density = "compact" | "comfortable";
+
 export interface Theme {
+  mode: ThemeMode;
+  background: BackgroundStyle;
+  /** Custom base colour `#rrggbb`, or null for the theme default. */
+  background_color: string | null;
   accent: string;
   glass: number;
   radius: number;
+  scale: number;
+  density: Density;
   reduce_motion: boolean;
+}
+
+export interface ExtensionInfo {
+  id: string;
+  name: string;
+  popup: string | null;
+  hasIcon: boolean;
+}
+
+export interface Bookmark {
+  url: string;
+  title: string;
+  added: number;
+}
+
+export interface Visit {
+  url: string;
+  title: string;
+  time: number;
 }
 
 export interface Settings {
@@ -50,6 +79,9 @@ export interface Settings {
   homepage: string;
   sidebar_width: number;
   theme: Theme;
+  restore_session: boolean;
+  show_bookmarks: boolean;
+  show_extensions: boolean;
 }
 
 export interface State {
@@ -58,6 +90,9 @@ export interface State {
   blocked: number;
   restartNeeded: boolean;
   platform: string;
+  bookmarks: Bookmark[];
+  extensions: ExtensionInfo[];
+  bookmarked: boolean;
 }
 
 export type Event = ({ type: "state" } & State) | { type: "focusAddress" };
@@ -83,6 +118,12 @@ export type Command =
   | { type: "openExtensions" }
   | { type: "devTools" }
   | { type: "restart" }
+  | { type: "toggleBookmark" }
+  | { type: "removeBookmark"; url: string }
+  | { type: "deleteHistory"; url: string }
+  | { type: "clearHistory" }
+  | { type: "extensionPopup"; id: string; x: number; y: number }
+  | { type: "systemDark"; dark: boolean }
   | { type: "minimize" }
   | { type: "toggleMaximize" }
   | { type: "closeWindow" };

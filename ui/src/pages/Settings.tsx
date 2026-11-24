@@ -1,10 +1,10 @@
 import { motion } from "motion/react";
-import { Columns3, PanelLeft, PanelTop, Puzzle, ShieldCheck, Gamepad2, Palette } from "lucide-react";
+import { Columns3, PanelLeft, PanelTop, Puzzle, ShieldCheck, Gamepad2, Palette, Moon, Sun, Monitor, History, RotateCcw } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
-import { ProfileSwitch } from "../components/controls";
+import { ProfileSwitch, Segmented } from "../components/controls";
 import { send, useZaphire } from "../lib/ipc";
 import type { Settings as S } from "../lib/types";
-import { cn, compact } from "../lib/util";
+import { cn, compact, resolvedMode } from "../lib/util";
 
 function Section({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
   return (
@@ -47,6 +47,24 @@ function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
     </button>
   );
 }
+
+/** Base colours for the browser frame, per theme. */
+const BACKGROUNDS: Record<"dark" | "light", { name: string; color: string }[]> = {
+  dark: [
+    { name: "Zafiro", color: "#0b1020" },
+    { name: "Grafito", color: "#16181d" },
+    { name: "Negro", color: "#000000" },
+    { name: "Bosque", color: "#0c1a14" },
+    { name: "Ciruela", color: "#1a1020" },
+  ],
+  light: [
+    { name: "Niebla", color: "#eef1f7" },
+    { name: "Blanco", color: "#ffffff" },
+    { name: "Arena", color: "#f5f0e6" },
+    { name: "Menta", color: "#eaf5ef" },
+    { name: "Lavanda", color: "#f1edf8" },
+  ],
+};
 
 const ACCENTS = ["#3b82f6", "#8b5cf6", "#06b6d4", "#22c55e", "#f59e0b", "#ef4444", "#ec4899"];
 const ENGINES = [
@@ -140,7 +158,7 @@ export default function Settings() {
               className="rounded-[var(--z-radius)] border border-line bg-panel px-3 py-2 text-[13px] outline-none"
             >
               {ENGINES.map((e) => (
-                <option key={e.url} value={e.url} className="bg-[#141c33]">
+                <option key={e.url} value={e.url} className="bg-menu">
                   {e.name}
                 </option>
               ))}
@@ -149,6 +167,63 @@ export default function Settings() {
         </Section>
 
         <Section icon={<Palette size={17} />} title="Apariencia">
+          <Row label="Tema">
+            <Segmented
+              label="Tema"
+              value={s.settings.theme.mode}
+              onChange={(mode) => theme({ mode, background_color: null })}
+              options={[
+                { id: "dark", label: "Oscuro", icon: <Moon size={13} /> },
+                { id: "light", label: "Claro", icon: <Sun size={13} /> },
+                { id: "system", label: "Sistema", icon: <Monitor size={13} /> },
+              ]}
+            />
+          </Row>
+          <Row label="Fondo" hint="Degradado suave con el color de acento, o un color plano">
+            <Segmented
+              label="Fondo"
+              value={s.settings.theme.background}
+              onChange={(background) => theme({ background })}
+              options={[
+                { id: "gradient", label: "Degradado" },
+                { id: "solid", label: "Plano" },
+              ]}
+            />
+          </Row>
+          <Row label="Color de fondo" hint={s.settings.theme.background_color ?? "Automático según el tema"}>
+            <div className="flex items-center gap-2">
+              <button
+                title="Automático"
+                onClick={() => theme({ background_color: null })}
+                className={cn(
+                  "z-press grid size-7 place-items-center rounded-full border border-line text-dim",
+                  !s.settings.theme.background_color && "ring-2 ring-accent",
+                )}
+              >
+                <RotateCcw size={12} />
+              </button>
+              {BACKGROUNDS[resolvedMode(s.settings.theme)].map((b) => (
+                <button
+                  key={b.color}
+                  title={b.name}
+                  onClick={() => theme({ background_color: b.color })}
+                  style={{ background: b.color }}
+                  className={cn(
+                    "z-press size-7 rounded-full border border-line",
+                    s.settings.theme.background_color === b.color && "ring-2 ring-accent",
+                  )}
+                />
+              ))}
+              <label title="Color personalizado" className="z-press relative size-7 cursor-pointer overflow-hidden rounded-full border border-line bg-[conic-gradient(red,yellow,lime,cyan,blue,magenta,red)]">
+                <input
+                  type="color"
+                  value={s.settings.theme.background_color ?? "#0b1020"}
+                  onChange={(e) => theme({ background_color: e.target.value })}
+                  className="absolute inset-0 cursor-pointer opacity-0"
+                />
+              </label>
+            </div>
+          </Row>
           <Row label="Color de acento">
             <div className="flex gap-2">
               {ACCENTS.map((c) => (
@@ -157,9 +232,12 @@ export default function Settings() {
                   title={c}
                   onClick={() => theme({ accent: c })}
                   style={{ background: c }}
-                  className={cn("z-press size-7 rounded-full", s.settings.theme.accent === c && "ring-2 ring-white ring-offset-2 ring-offset-[#0b1020]")}
+                  className={cn("z-press size-7 rounded-full", s.settings.theme.accent === c && "ring-2 ring-text ring-offset-2 ring-offset-[var(--z-bg)]")}
                 />
               ))}
+              <label title="Color personalizado" className="z-press relative size-7 cursor-pointer overflow-hidden rounded-full border border-line bg-[conic-gradient(red,yellow,lime,cyan,blue,magenta,red)]">
+                <input type="color" value={s.settings.theme.accent} onChange={(e) => theme({ accent: e.target.value })} className="absolute inset-0 cursor-pointer opacity-0" />
+              </label>
             </div>
           </Row>
           <Row label="Transparencia del cristal" hint={`${Math.round(s.settings.theme.glass * 100)}%`}>
@@ -183,12 +261,51 @@ export default function Settings() {
               className="w-48 accent-[var(--z-accent)]"
             />
           </Row>
+          <Row label="Tamaño de la interfaz" hint={`${Math.round(s.settings.theme.scale * 100)}%`}>
+            <input
+              type="range"
+              min={0.85}
+              max={1.25}
+              step={0.05}
+              value={s.settings.theme.scale}
+              onChange={(e) => theme({ scale: Number(e.target.value) })}
+              className="w-48 accent-[var(--z-accent)]"
+            />
+          </Row>
+          <Row label="Densidad">
+            <Segmented
+              label="Densidad"
+              value={s.settings.theme.density}
+              onChange={(density) => theme({ density })}
+              options={[
+                { id: "comfortable", label: "Cómoda" },
+                { id: "compact", label: "Compacta" },
+              ]}
+            />
+          </Row>
           <Row label="Reducir animaciones">
             <Toggle label="Reducir animaciones" on={s.settings.theme.reduce_motion} onChange={(v) => theme({ reduce_motion: v })} />
           </Row>
         </Section>
 
+        <Section icon={<History size={17} />} title="Inicio y biblioteca">
+          <Row label="Restaurar pestañas al abrir" hint="Vuelven sin cargar: solo se cargan al abrirlas, así no gastan memoria">
+            <Toggle label="Restaurar pestañas" on={s.settings.restore_session} onChange={(v) => set({ restore_session: v })} />
+          </Row>
+          <Row label="Marcadores en la barra lateral">
+            <Toggle label="Marcadores en la barra" on={s.settings.show_bookmarks} onChange={(v) => set({ show_bookmarks: v })} />
+          </Row>
+          <Row label="Historial y marcadores" hint="Ctrl+H">
+            <button onClick={() => send({ type: "newTab", url: "zaphire://app/library" })} className="z-press rounded-[var(--z-radius)] bg-panel px-3 py-2 text-[13px] hover:bg-panel-hover">
+              Abrir
+            </button>
+          </Row>
+        </Section>
+
         <Section icon={<Puzzle size={17} />} title="Extensiones">
+          <Row label="Botones de extensiones en la barra" hint="Al pulsarlos se abre la ventana emergente de la extensión">
+            <Toggle label="Botones de extensiones" on={s.settings.show_extensions} onChange={(v) => set({ show_extensions: v })} />
+          </Row>
           <Row label="Extensiones de Chrome" hint="Instálalas desde la Chrome Web Store y gestiónalas en chrome://extensions">
             <div className="flex gap-2">
               <button onClick={() => send({ type: "newTab", url: "https://chromewebstore.google.com" })} className="z-press rounded-[var(--z-radius)] bg-panel px-3 py-2 text-[13px] hover:bg-panel-hover">

@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { ArrowLeft, ArrowRight, Gauge, Leaf, Gamepad2, Minus, RotateCw, Square, X, Lock, Search, Globe, Columns2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Gauge, Leaf, Gamepad2, Minus, RotateCw, Square, X, Lock, Search, Globe, Columns2, Star } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { onFocusAddress, send } from "../lib/ipc";
 import type { Profile, Tab } from "../lib/types";
@@ -77,7 +77,7 @@ export function NavButtons({ tab, split, onSplit }: { tab: Tab | null; split: bo
   );
 }
 
-export function AddressBar({ tab, className }: { tab: Tab | null; className?: string }) {
+export function AddressBar({ tab, className, bookmarked }: { tab: Tab | null; className?: string; bookmarked?: boolean }) {
   const [focused, setFocused] = useState(false);
   const [value, setValue] = useState("");
   const input = useRef<HTMLInputElement>(null);
@@ -136,6 +136,16 @@ export function AddressBar({ tab, className }: { tab: Tab | null; className?: st
           }
         }}
       />
+      {!focused && tab && !internal && (
+        <button
+          type="button"
+          title={bookmarked ? "Quitar de marcadores (Ctrl+D)" : "Añadir a marcadores (Ctrl+D)"}
+          onClick={() => send({ type: "toggleBookmark" })}
+          className={cn("z-press shrink-0 rounded-md p-0.5", bookmarked ? "text-warning" : "text-faint opacity-0 group-hover:opacity-100 hover:text-text")}
+        >
+          <Star size={14} fill={bookmarked ? "currentColor" : "none"} />
+        </button>
+      )}
     </form>
   );
 }
@@ -201,5 +211,38 @@ export function Favicon({ tab, size = 16 }: { tab: Tab; size?: number }) {
     >
       {letter}
     </span>
+  );
+}
+
+/** Generic segmented control (theme, background, density…). */
+export function Segmented<T extends string>({
+  value,
+  options,
+  onChange,
+  label,
+}: {
+  value: T;
+  options: { id: T; label: string; icon?: ReactNode }[];
+  onChange: (v: T) => void;
+  label: string;
+}) {
+  return (
+    <div role="radiogroup" aria-label={label} className="no-drag flex rounded-[var(--z-radius)] bg-panel p-0.5">
+      {options.map((o) => (
+        <button
+          key={o.id}
+          role="radio"
+          aria-checked={value === o.id}
+          onClick={() => onChange(o.id)}
+          className={cn(
+            "z-press flex items-center gap-1.5 rounded-[calc(var(--z-radius)-3px)] px-3 py-1.5 text-[12px]",
+            value === o.id ? "bg-panel-active text-text shadow-sm" : "text-dim hover:text-text",
+          )}
+        >
+          {o.icon}
+          {o.label}
+        </button>
+      ))}
+    </div>
   );
 }

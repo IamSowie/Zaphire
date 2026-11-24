@@ -1,13 +1,14 @@
 import { StrictMode, Suspense, lazy, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { SidebarShell, TopBarShell } from "./components/Shell";
-import { start, useZaphire } from "./lib/ipc";
-import { applyTheme } from "./lib/util";
+import { isShellView, send, start, useZaphire } from "./lib/ipc";
+import { applyTheme, onSystemThemeChange, systemPrefersDark } from "./lib/util";
 import "./index.css";
 
 // Pages that load inside tabs are split out so the shell bundle stays small.
 const NewTab = lazy(() => import("./pages/NewTab"));
 const Settings = lazy(() => import("./pages/Settings"));
+const Library = lazy(() => import("./pages/Library"));
 
 function ShellView() {
   const s = useZaphire();
@@ -20,8 +21,23 @@ function App() {
   useEffect(() => {
     if (s) applyTheme(s.settings);
   }, [s]);
+  // The `system` theme follows the OS; the core needs to know too, to paint
+  // the window frame in the matching colour.
+  // Report once on start and then only on real OS changes (not per state
+  // push, which would loop: command → push → effect → command…).
+  useEffect(() => {
+    if (isShellView) send({ type: "systemDark", dark: systemPrefersDark() });
+    return onSystemThemeChange((dark) => {
+      if (isShellView) send({ type: "systemDark", dark });
+    });
+  }, []);
+  useEffect(() => {
+    if (!s) return;
+    return onSystemThemeChange(() => applyTheme(s.settings));
+  }, [s]);
   const path = location.pathname.replace(/\/$/, "") || "/";
-  const page = path === "/newtab" ? <NewTab /> : path === "/settings" ? <Settings /> : <ShellView />;
+  const page =
+    path === "/newtab" ? <NewTab /> : path === "/settings" ? <Settings /> : path === "/library" ? <Library /> : <ShellView />;
   return <Suspense fallback={<div className="z-backdrop h-full" />}>{page}</Suspense>;
 }
 

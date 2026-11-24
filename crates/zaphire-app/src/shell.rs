@@ -4,7 +4,7 @@
 //! so CEF callbacks can reach it; callbacks that may fire while the state is
 //! borrowed (layout, creation) go through atomics or `tasks::on_ui` instead.
 
-use crate::clients::{TabClient, UiClient};
+use crate::clients::{PopupClient, TabClient, UiClient};
 use crate::{app, tasks};
 use cef::*;
 use std::cell::RefCell;
@@ -16,6 +16,7 @@ use zaphire_perf::Profile;
 
 const TOPBAR_HEIGHT: i32 = 88;
 const SUSPEND_CHECK_MS: i64 = 30_000;
+const SAVE_EVERY_MS: i64 = 20_000;
 const BG_COLOR: u32 = 0xff0b1020;
 
 /// Size the UI view asks for (width in vertical-tab mode, height otherwise).
@@ -25,6 +26,14 @@ static UI_HEIGHT: AtomicI32 = AtomicI32::new(TOPBAR_HEIGHT);
 static LIVE_BROWSERS: AtomicUsize = AtomicUsize::new(0);
 static CLOSING: AtomicBool = AtomicBool::new(false);
 static PUSH_PENDING: AtomicBool = AtomicBool::new(false);
+/// OS prefers dark colours (reported by the UI, for the `system` theme).
+static SYSTEM_DARK: AtomicBool = AtomicBool::new(true);
+static LAST_POPUP_CLOSE: std::sync::Mutex<Option<(String, std::time::Instant)>> =
+    std::sync::Mutex::new(None);
+const POPUP_DEFAULT: Size = Size {
+    width: 360,
+    height: 480,
+};
 /// Latest state event as JSON, served to pages at `zaphire://app/api/state`.
 pub static LAST_STATE: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 
@@ -44,6 +53,15 @@ struct Shell {
     fullscreen: Option<TabId>,
     /// Chrome-style windows (extensions, Web Store). See `open_chrome_window`.
     chrome_windows: Vec<Window>,
+    /// Open extension popup, floating over the window.
+    popup: Option<Popup>,
+}
+
+struct Popup {
+    id: String,
+    controller: OverlayController,
+    view: BrowserView,
+    anchor: Point,
 }
 
 fn with_shell<R>(f: impl FnOnce(&mut Shell) -> R) -> Option<R> {
@@ -67,6 +85,8 @@ pub enum Shortcut {
     ToggleGame,
     ToggleSplit,
     DevTools,
+    Bookmark,
+    History,
 }
 
 // ─────────────────────────── creation ───────────────────────────
@@ -85,7 +105,7 @@ pub fn create(settings: Settings, url: Option<String>) {
 
     let mut ui_client = UiClient::new();
     let ui_settings = BrowserSettings {
-        background_color: BG_COLOR,
+        background_color: settings.theme.frame_color(true),
         ..Default::default()
     };
     let ui = browser_view_create(
@@ -108,28 +128,47 @@ pub fn create(settings: Settings, url: Option<String>) {
         ..Default::default()
     }));
 
-    let first_url = url.unwrap_or_else(|| settings.homepage.clone());
+    // Restored tabs come back unloaded; only the visible ones load.
+    let restored = settings
+        .restore_session
+        .then(|| app::global().library.lock().ok()?.load_session())
+        .flatten();
+    let first_url = match (&restored, url) {
+        (_, Some(u)) => Some(u),
+        (None, None) => Some(settings.homepage.clone()),
+        (Some(_), None) => None,
+    };
+    let frame = settings
+        .theme
+        .frame_color(SYSTEM_DARK.load(Ordering::Relaxed));
+    content.set_background_color(frame);
     SHELL.with(|s| {
         *s.borrow_mut() = Some(Shell {
             window: None,
             ui,
             content,
             views: HashMap::new(),
-            session: Session::default(),
+            session: restored.unwrap_or_default(),
             settings,
             running,
             fullscreen: None,
             chrome_windows: Vec::new(),
+            popup: None,
         });
     });
     with_shell(|sh| {
-        let id = sh.session.new_tab(&first_url, tasks::now_secs());
-        sh.create_view(id);
+        if let Some(url) = first_url {
+            let id = sh.session.new_tab(&url, tasks::now_secs());
+            sh.create_view(id);
+        }
         sh.apply_visibility();
     });
+    tasks::on_ui(2_000, refresh_extensions);
+    tasks::on_ui(6_000, refresh_extensions);
 
     window_create_top_level(Some(&mut ShellWindowDelegate::new()));
     tasks::on_ui(SUSPEND_CHECK_MS, suspend_tick);
+    tasks::on_ui(SAVE_EVERY_MS, save_tick);
 }
 
 fn raise_priority() {
@@ -280,6 +319,119 @@ impl Shell {
         id
     }
 
+    fn frame_color(&self) -> u32 {
+        self.settings
+            .theme
+            .frame_color(SYSTEM_DARK.load(Ordering::Relaxed))
+    }
+
+    /// Paint the window and the gaps between panes in the theme's colour.
+    fn apply_frame_color(&self) {
+        let c = self.frame_color();
+        self.content.set_background_color(c);
+        if let Some(w) = &self.window {
+            w.set_background_color(c);
+        }
+    }
+
+    /// Persist history, bookmarks and (if enabled) the open tabs.
+    fn save_all(&self) {
+        let Ok(mut lib) = app::global().library.lock() else {
+            return;
+        };
+        if let Err(e) = lib.save() {
+            log::error!("cannot save history/bookmarks: {e}");
+        }
+        if self.settings.restore_session
+            && let Err(e) = lib.save_session(&self.session)
+        {
+            log::error!("cannot save session: {e}");
+        }
+    }
+
+    fn close_popup(&mut self) {
+        if let Some(p) = self.popup.take() {
+            // Clicking the same button again first moves focus (closing the
+            // popup); remember it so that click does not reopen it.
+            if let Ok(mut last) = LAST_POPUP_CLOSE.lock() {
+                *last = Some((p.id.clone(), std::time::Instant::now()));
+            }
+            if let Some(host) = p.view.browser().and_then(|b| b.host()) {
+                host.close_browser(1);
+            }
+            p.controller.destroy();
+        }
+    }
+
+    fn open_popup(&mut self, id: &str, x: i32, y: i32) {
+        self.close_popup();
+        let Some(window) = self.window.clone() else {
+            return;
+        };
+        let exts = app::global()
+            .extensions
+            .lock()
+            .map(|e| e.clone())
+            .unwrap_or_default();
+        let Some(ext) = exts.iter().find(|e| e.id == id) else {
+            return;
+        };
+        let Some(popup) = &ext.popup else {
+            // No popup: show the extension's options in Chrome's manager.
+            open_chrome_window(&format!("chrome://extensions/?id={id}"));
+            return;
+        };
+        let url = format!("chrome-extension://{id}/{popup}");
+        let Some(view) = browser_view_create(
+            Some(&mut PopupClient::new()),
+            Some(&CefString::from(url.as_str())),
+            Some(&BrowserSettings {
+                background_color: self.frame_color(),
+                ..Default::default()
+            }),
+            None,
+            None,
+            Some(&mut PopupViewDelegate::new()),
+        ) else {
+            return log::error!("cannot create popup for {id}");
+        };
+        let Some(controller) =
+            window.add_overlay_view(Some(&mut View::from(&view)), DockingMode::CUSTOM, 1)
+        else {
+            return;
+        };
+        let anchor = Point { x, y };
+        self.popup = Some(Popup {
+            id: id.to_string(),
+            controller,
+            view,
+            anchor,
+        });
+        self.place_popup(POPUP_DEFAULT);
+        if let Some(p) = &self.popup {
+            p.controller.set_visible(1);
+            p.view.request_focus();
+        }
+    }
+
+    /// Put the popup under its button, kept inside the window.
+    fn place_popup(&self, size: Size) {
+        let (Some(p), Some(w)) = (&self.popup, &self.window) else {
+            return;
+        };
+        let win = w.bounds();
+        let width = size.width.clamp(80, 800);
+        let height = size.height.clamp(40, 600);
+        let x = p.anchor.x.clamp(4, (win.width - width - 4).max(4));
+        let y = p.anchor.y.clamp(4, (win.height - height - 4).max(4));
+        p.controller.set_bounds(Some(&Rect {
+            x,
+            y,
+            width,
+            height,
+        }));
+    }
+
     fn save_settings(&self) {
         if let Err(e) = self.settings.save(&Settings::default_path()) {
             log::error!("cannot save settings: {e}");
@@ -291,13 +443,24 @@ impl Shell {
             return;
         };
 
+        let g = app::global();
+        let (Ok(lib), Ok(exts)) = (g.library.lock(), g.extensions.lock()) else {
+            return;
+        };
+        let bookmarked = self
+            .active()
+            .and_then(|a| self.session.tab(a))
+            .is_some_and(|t| lib.is_bookmarked(&t.url));
         let event = Event::State {
             session: &self.session,
             settings: &self.settings,
-            blocked: app::global().blocker.blocked_count(),
+            blocked: g.blocker.blocked_count(),
             restart_needed: self.running != self.settings.profile
                 && self.running.needs_restart_to(self.settings.profile),
             platform: std::env::consts::OS,
+            bookmarks: &lib.bookmarks,
+            extensions: &exts,
+            bookmarked,
         };
         if let Ok(mut last) = LAST_STATE.lock() {
             *last = serde_json::to_string(&event).unwrap_or_default();
@@ -344,7 +507,15 @@ pub fn update_tab(id: TabId, f: impl FnOnce(&mut Tab) + Send + 'static) {
     tasks::on_ui(0, move || {
         with_shell(|sh| {
             if let Some(t) = sh.session.tab_mut(id) {
+                let (was_loading, old_title) = (t.loading, t.title.clone());
                 f(t);
+                if let Ok(mut lib) = app::global().library.lock() {
+                    if was_loading && !t.loading {
+                        lib.record(&t.url, &t.title, unix_now());
+                    } else if t.title != old_title && !t.loading {
+                        lib.update_title(&t.url, &t.title);
+                    }
+                }
             }
             if sh.active() == Some(id)
                 && let (Some(w), Some(t)) = (&sh.window, sh.session.tab(id))
@@ -356,6 +527,39 @@ pub fn update_tab(id: TabId, f: impl FnOnce(&mut Tab) + Send + 'static) {
             }
         });
         schedule_push();
+    });
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+/// Re-read installed extensions from the profile and tell the UI.
+pub fn refresh_extensions() {
+    let g = app::global();
+    let list = zaphire_core::extensions::installed(&g.profile_dir);
+    if let Ok(mut e) = g.extensions.lock() {
+        if *e == list {
+            return;
+        }
+        log::info!("{} extension(s) installed", list.len());
+        *e = list;
+    }
+    schedule_push();
+}
+
+/// Resize the open popup to its content (from `on_auto_resize`).
+pub fn resize_popup(size: Size) {
+    tasks::on_ui(0, move || {
+        with_shell(|sh| sh.place_popup(size));
+    });
+}
+
+pub fn close_popup() {
+    tasks::on_ui(0, || {
+        with_shell(|sh| sh.close_popup());
     });
 }
 
@@ -459,6 +663,10 @@ pub fn shortcut(s: Shortcut) {
             sh.session.set_split(target);
             sh.apply_visibility();
         }
+        Shortcut::Bookmark => toggle_bookmark(sh),
+        Shortcut::History => {
+            sh.new_tab("zaphire://app/library", true);
+        }
         Shortcut::DevTools => {
             if let Some(host) = sh
                 .active()
@@ -471,12 +679,25 @@ pub fn shortcut(s: Shortcut) {
     });
 }
 
+fn toggle_bookmark(sh: &mut Shell) {
+    let Some(t) = sh.active().and_then(|a| sh.session.tab(a)) else {
+        return;
+    };
+    if t.url.starts_with("zaphire:") || t.url.starts_with("chrome") {
+        return;
+    }
+    if let Ok(mut lib) = app::global().library.lock() {
+        lib.toggle_bookmark(&t.url, &t.title, unix_now());
+    }
+    schedule_push();
+}
+
 /// Handle a command from the UI.
 pub fn handle(cmd: Command) {
     let now = tasks::now_secs();
     with_shell(|sh| {
         match cmd {
-            Command::Ready => {}
+            Command::Ready => tasks::on_ui(0, refresh_extensions),
             Command::NewTab { url } => {
                 let url = url
                     .map(|u| resolve_input(&u, &sh.settings.search_engine))
@@ -572,6 +793,7 @@ pub fn handle(cmd: Command) {
                 );
                 sh.settings = settings;
                 sh.save_settings();
+                sh.apply_frame_color();
                 if layout_changed {
                     sh.apply_root_layout();
                 }
@@ -586,7 +808,45 @@ pub fn handle(cmd: Command) {
                     host.show_dev_tools(None, None, None, None);
                 }
             }
-            Command::Restart => restart(sh),
+            Command::Restart => {
+                sh.save_all();
+                restart(sh)
+            }
+            Command::ToggleBookmark => toggle_bookmark(sh),
+            Command::RemoveBookmark { url } => {
+                if let Ok(mut lib) = app::global().library.lock() {
+                    lib.remove_bookmark(&url);
+                }
+            }
+            Command::DeleteHistory { url } => {
+                if let Ok(mut lib) = app::global().library.lock() {
+                    lib.delete_url(&url);
+                }
+            }
+            Command::ClearHistory => {
+                if let Ok(mut lib) = app::global().library.lock() {
+                    lib.clear_history();
+                }
+            }
+            Command::ExtensionPopup { id, x, y } => {
+                let just_closed = LAST_POPUP_CLOSE
+                    .lock()
+                    .ok()
+                    .and_then(|l| l.clone())
+                    .is_some_and(|(last, at)| {
+                        last == id && at.elapsed() < std::time::Duration::from_millis(400)
+                    });
+                if sh.popup.as_ref().is_some_and(|p| p.id == id) {
+                    sh.close_popup();
+                } else if !just_closed {
+                    sh.open_popup(&id, x, y);
+                }
+            }
+            Command::SystemDark { dark } => {
+                if SYSTEM_DARK.swap(dark, Ordering::Relaxed) != dark {
+                    sh.apply_frame_color();
+                }
+            }
             Command::Minimize => {
                 if let Some(w) = &sh.window {
                     w.minimize();
@@ -666,6 +926,14 @@ fn restart(sh: &mut Shell) {
     if let Some(w) = &sh.window {
         w.close();
     }
+}
+
+fn save_tick() {
+    with_shell(|sh| sh.save_all());
+    // Chromium writes the profile's Preferences lazily, and extensions can be
+    // added from the Chrome window at any time: re-read the list.
+    refresh_extensions();
+    tasks::on_ui(SAVE_EVERY_MS, save_tick);
 }
 
 fn suspend_tick() {
@@ -754,6 +1022,8 @@ wrap_window_delegate! {
         }
         fn on_window_destroyed(&self, _window: Option<&mut Window>) {
             self.view.borrow_mut().take();
+            // Extensions may have been installed or removed there.
+            tasks::on_ui(300, refresh_extensions);
         }
         fn can_close(&self, _window: Option<&mut Window>) -> i32 {
             self.view
@@ -765,6 +1035,23 @@ wrap_window_delegate! {
         }
         fn window_runtime_style(&self) -> RuntimeStyle {
             RuntimeStyle::CHROME
+        }
+    }
+}
+
+wrap_browser_view_delegate! {
+    struct PopupViewDelegate {}
+
+    impl ViewDelegate {
+        fn on_blur(&self, _view: Option<&mut View>) {
+            // Like Chrome: clicking anywhere else closes the popup.
+            close_popup();
+        }
+    }
+
+    impl BrowserViewDelegate {
+        fn browser_runtime_style(&self) -> RuntimeStyle {
+            RuntimeStyle::ALLOY
         }
     }
 }
@@ -794,12 +1081,12 @@ wrap_window_delegate! {
     impl WindowDelegate {
         fn on_window_created(&self, window: Option<&mut Window>) {
             let Some(window) = window else { return };
-            window.set_background_color(BG_COLOR);
             window.set_title(Some(&CefString::from("Zaphire")));
             with_shell(|sh| {
                 window.add_child_view(Some(&mut View::from(&sh.ui)));
                 window.add_child_view(Some(&mut View::from(&sh.content)));
                 sh.window = Some(window.clone());
+                sh.apply_frame_color();
                 sh.apply_root_layout();
             });
             window.show();
@@ -820,6 +1107,8 @@ wrap_window_delegate! {
         fn can_close(&self, _window: Option<&mut Window>) -> i32 {
             CLOSING.store(true, Ordering::Release);
             with_shell(|sh| {
+                sh.save_all();
+                sh.close_popup();
                 for w in sh.chrome_windows.drain(..) {
                     if w.is_closed() == 0 {
                         w.close();

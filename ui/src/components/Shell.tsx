@@ -1,10 +1,12 @@
-import { Puzzle, Settings2, ShieldCheck, ShieldOff, RefreshCw } from "lucide-react";
+import { History, Puzzle, Settings2, ShieldCheck, ShieldOff, RefreshCw } from "lucide-react";
 import { send } from "../lib/ipc";
 import type { State } from "../lib/types";
 import { activeTab, cn, compact } from "../lib/util";
 import { AddressBar, IconButton, NavButtons, ProfileSwitch, WindowControls } from "./controls";
 import { HorizontalTabs, VerticalTabs } from "./tabs";
 import { Workspaces } from "./workspaces";
+import { ExtensionBar } from "./extensions";
+import { SidebarBookmarks } from "./bookmarks";
 
 function toggleSplit(s: State) {
   const ws = s.session.workspaces.find((w) => w.id === s.session.current)!;
@@ -14,6 +16,10 @@ function toggleSplit(s: State) {
 
 function openSettings() {
   send({ type: "newTab", url: "zaphire://app/settings" });
+}
+
+function openLibrary() {
+  send({ type: "newTab", url: "zaphire://app/library" });
 }
 
 function Brand() {
@@ -65,8 +71,12 @@ export function SidebarShell({ s }: { s: State }) {
         <NavButtons tab={tab} split={ws.split != null} onSplit={() => toggleSplit(s)} />
         <ShieldBadge s={s} />
       </div>
-      <AddressBar tab={tab} className="mx-2" />
+      <AddressBar tab={tab} className="mx-2" bookmarked={s.bookmarked} />
+      {s.settings.show_extensions && s.extensions.length > 0 && (
+        <ExtensionBar extensions={s.extensions} side="right" className="px-2" />
+      )}
       <div className="mx-3 my-1 h-px bg-line" />
+      {s.settings.show_bookmarks && <SidebarBookmarks bookmarks={s.bookmarks} />}
       <VerticalTabs session={s.session} />
       <footer className="flex flex-col gap-2 border-t border-line p-2">
         <RestartHint s={s} />
@@ -74,6 +84,9 @@ export function SidebarShell({ s }: { s: State }) {
         <div className="flex items-center justify-between">
           <Workspaces session={s.session} />
           <div className="flex items-center">
+            <IconButton title="Historial y marcadores (Ctrl+H)" onClick={openLibrary}>
+              <History size={15} />
+            </IconButton>
             <IconButton title="Extensiones" onClick={() => send({ type: "openExtensions" })}>
               <Puzzle size={15} />
             </IconButton>
@@ -100,17 +113,25 @@ export function TopBarShell({ s }: { s: State }) {
       </div>
       <div className="flex h-11 items-center gap-2 px-2 pb-1">
         <NavButtons tab={tab} split={ws.split != null} onSplit={() => toggleSplit(s)} />
-        <AddressBar tab={tab} className="flex-1" />
+        <AddressBar tab={tab} className="flex-1" bookmarked={s.bookmarked} />
         <RestartHint s={s} />
+        {s.settings.show_extensions && s.extensions.length > 0 && (
+          <ExtensionBar extensions={s.extensions} side="below" className="max-w-64" />
+        )}
         <ShieldBadge s={s} />
         <div className="w-44">
           <ProfileSwitch value={s.settings.profile} compact />
         </div>
         <Workspaces session={s.session} popupSide="left" />
         <div className={cn("flex items-center")}>
-          <IconButton title="Extensiones" onClick={() => send({ type: "openExtensions" })}>
-            <Puzzle size={15} />
+          <IconButton title="Historial y marcadores (Ctrl+H)" onClick={openLibrary}>
+            <History size={15} />
           </IconButton>
+          {!(s.settings.show_extensions && s.extensions.length > 0) && (
+            <IconButton title="Extensiones" onClick={() => send({ type: "openExtensions" })}>
+              <Puzzle size={15} />
+            </IconButton>
+          )}
           <IconButton title="Ajustes" onClick={openSettings}>
             <Settings2 size={15} />
           </IconButton>

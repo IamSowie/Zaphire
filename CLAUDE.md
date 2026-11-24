@@ -15,6 +15,10 @@
     write `struct X {}`.
   - `PostData::elements` uses the Vec length as the count: pre-size it.
   - BoxLayout needs `cross_axis_alignment: STRETCH` or children get 0 height.
+  - Chromium writes the profile `Preferences` lazily: re-read it, don't read once.
+  - `ViewDelegate::on_blur` did not fire for the popup overlay; close it from
+    `FocusHandler::on_got_focus` of the other browsers instead.
+  - Doc comments (`///`) inside `wrap_*!` macro bodies break the macro.
 - UI libraries: see `.claude/skills/*` (Aceternity, Kobra, EasyUI, Pin UI, RareUI).
   No always-on animation in the shell; heavy effects only on the new-tab page.
 - EGM artifact directory: docs/egm

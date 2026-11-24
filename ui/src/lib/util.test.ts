@@ -35,3 +35,29 @@ describe("mock core", () => {
     expect(m.get().session.workspaces[0].active).toBe(4);
   });
 });
+
+describe("applyTheme", () => {
+  it("sets theme, background style and custom colours", async () => {
+    const { applyTheme } = await import("./util");
+    const m = (() => {
+      let st: State | null = null;
+      createMock((e) => {
+        if (e.type === "state") st = e;
+      })({ type: "ready" });
+      return () => st!;
+    })();
+    await new Promise((r) => setTimeout(r, 1));
+    const settings = m().settings;
+    settings.theme = { ...settings.theme, mode: "light", background: "solid", background_color: "#ffffff", density: "compact", scale: 2 };
+    applyTheme(settings);
+    const root = document.documentElement;
+    expect(root.dataset.theme).toBe("light");
+    expect(root.dataset.bg).toBe("solid");
+    expect(root.dataset.density).toBe("compact");
+    expect(root.style.getPropertyValue("--z-bg")).toBe("#ffffff");
+    expect(root.style.getPropertyValue("zoom")).toBe("1.25");
+    settings.theme.background_color = "not-a-colour";
+    applyTheme(settings);
+    expect(root.style.getPropertyValue("--z-bg")).toBe("");
+  });
+});
