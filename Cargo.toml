@@ -6,8 +6,6 @@ members = ["crates/*"]
 version = "0.1.0"
 edition = "2024"
 license = "MPL-2.0"
-repository = "https://github.com/IamSowie/zaphire"
-authors = ["Zaphire contributors"]
 
 [workspace.dependencies]
 zaphire-core = { path = "crates/zaphire-core" }

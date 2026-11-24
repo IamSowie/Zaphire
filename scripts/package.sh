@@ -18,12 +18,22 @@ OUT="dist/zaphire-$OS"
 rm -rf "$OUT" && mkdir -p "$OUT"
 
 cp "$SRC/$EXE" "$OUT/"
-# CEF runtime files (copied next to the binary by the cef build script).
-for f in "$SRC"/*.pak "$SRC"/*.dat "$SRC"/*.bin "$SRC"/*.json "$SRC"/*.so* "$SRC"/*.dll; do
-  [ -e "$f" ] && cp "$f" "$OUT/"
+# CEF runtime files. The cef build script copies them next to the binary;
+# fall back to the CEF_PATH export if it did not (e.g. cached build script).
+for dir in "${CEF_PATH:-}" "$SRC"; do
+  [ -n "$dir" ] && [ -d "$dir" ] || continue
+  for f in "$dir"/*.pak "$dir"/*.dat "$dir"/*.bin "$dir"/*.json "$dir"/*.so* "$dir"/*.dll "$dir"/chrome-sandbox; do
+    if [ -f "$f" ]; then cp "$f" "$OUT/"; fi
+  done
+  if [ -d "$dir/locales" ]; then cp -r "$dir/locales" "$OUT/"; fi
 done
-[ -d "$SRC/locales" ] && cp -r "$SRC/locales" "$OUT/"
-[ -e "$SRC/chrome-sandbox" ] && cp "$SRC/chrome-sandbox" "$OUT/"
+rm -f "$OUT/archive.json"
+LIB=$([ "$OS" = windows ] && echo libcef.dll || echo libcef.so)
+if [ ! -f "$OUT/$LIB" ]; then
+  echo "error: $LIB not found. CEF_PATH=${CEF_PATH:-unset}" >&2
+  ls "${CEF_PATH:-.}" "$SRC" >&2 || true
+  exit 1
+fi
 cp -r ui/dist "$OUT/ui"
 cp LICENSE README.md "$OUT/"
 if [ "$OS" = linux ]; then

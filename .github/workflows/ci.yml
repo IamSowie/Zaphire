@@ -67,7 +67,11 @@ jobs:
             cargo install export-cef-dir --version 156.7.0 --locked || true
             export-cef-dir --force "$HOME/.local/share/cef"
           fi
-          echo "CEF_PATH=$HOME/.local/share/cef" >> "$GITHUB_ENV"
+          CEF="$HOME/.local/share/cef"
+          # Rust on Windows needs C:/… paths, not Git Bash's /c/….
+          if command -v cygpath >/dev/null; then CEF="$(cygpath -m "$CEF")"; fi
+          echo "CEF_PATH=$CEF" >> "$GITHUB_ENV"
+          ls "$CEF" | head -20
       - uses: Swatinem/rust-cache@v2
       - name: Package
         shell: bash
