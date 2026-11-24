@@ -94,12 +94,10 @@ El resultado queda en `dist/zaphire-linux/` (lanzar con `zaphire.sh`) o en
 además el AppImage. El instalador de Windows se genera con Inno Setup
 (`packaging/windows/zaphire.iss`); la CI lo hace sola.
 
-Publicar una versión: sube una etiqueta `v*` y la CI crea la *release* con
-todos los archivos.
-
-```bash
-git tag v0.2.0 && git push origin v0.2.0
-```
+Publicar una versión: sube el número en `version` de `Cargo.toml` (y en
+`ui/package.json`) y haz push a `main`. Cuando la CI termina en verde crea la
+*release* `v<versión>` con el instalador, el AppImage y los portables. También
+sirve empujar una etiqueta `v*`.
 
 Para desarrollar la interfaz sin Chromium, con un backend simulado:
 
