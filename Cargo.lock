@@ -1724,7 +1724,7 @@ dependencies = [
 
 [[package]]
 name = "zaphire-adblock"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "adblock",
  "log",
@@ -1732,7 +1732,7 @@ dependencies = [
 
 [[package]]
 name = "zaphire-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cef",
  "env_logger",
@@ -1748,7 +1748,7 @@ dependencies = [
 
 [[package]]
 name = "zaphire-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dirs",
  "serde",
@@ -1760,7 +1760,7 @@ dependencies = [
 
 [[package]]
 name = "zaphire-ipc"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1770,7 +1770,7 @@ dependencies = [
 
 [[package]]
 name = "zaphire-perf"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]

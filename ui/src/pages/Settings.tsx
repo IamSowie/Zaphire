@@ -318,7 +318,7 @@ export default function Settings() {
           </Row>
         </Section>
 
-        <p className="text-center text-[12px] text-faint">Zaphire 0.1 · {s.platform}</p>
+        <p className="text-center text-[12px] text-faint">Zaphire {__APP_VERSION__} · {s.platform}</p>
       </div>
     </main>
   );
