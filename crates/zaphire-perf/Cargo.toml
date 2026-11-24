@@ -1,0 +1,9 @@
+[package]
+name = "zaphire-perf"
+description = "Performance profiles (Saver / Balanced / Game) for Zaphire"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true

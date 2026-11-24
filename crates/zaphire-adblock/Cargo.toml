@@ -1,0 +1,12 @@
+[package]
+name = "zaphire-adblock"
+description = "Native ad and tracker blocking for Zaphire, using Brave's adblock engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# Without "single-thread" the engine is Send + Sync, so the IO thread can
+# query it while the UI thread swaps it.
+adblock = { version = "0.13.6", default-features = false, features = ["embedded-domain-resolver", "full-regex-handling"] }
+log.workspace = true

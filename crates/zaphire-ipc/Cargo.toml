@@ -1,0 +1,12 @@
+[package]
+name = "zaphire-ipc"
+description = "Typed messages between the Zaphire UI (React) and the browser core (Rust)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+zaphire-core.workspace = true
+zaphire-perf.workspace = true
+serde.workspace = true
+serde_json.workspace = true
